@@ -425,8 +425,9 @@
         function goToKnockout() {
             if(tData.knockoutRounds && tData.knockoutRounds.length > 0) return;
 
-            let advancers = [];
-            tData.groups.forEach(g => {
+            // 1. 收集各組晉級名單（保留組別資訊，確保同組第一輪不相遇）
+            let groupAdvancers = [];
+            tData.groups.forEach((g, gIdx) => {
                 let stats = {};
                 g.players.forEach(p => { stats[p.id] = { matchWins: 0, legsWon: 0, legsLost: 0 }; });
                 g.matches.forEach(m => {
@@ -441,22 +442,60 @@
                     if (stats[b.id].matchWins !== stats[a.id].matchWins) return stats[b.id].matchWins - stats[a.id].matchWins;
                     return (stats[b.id].legsWon - stats[b.id].legsLost) - (stats[a.id].legsWon - stats[a.id].legsLost);
                 });
-                advancers.push(...sorted.slice(0, tData.advancingCount));
+                
+                let topPlayers = sorted.slice(0, tData.advancingCount).map(p => ({ ...p, groupIdx: gIdx }));
+                groupAdvancers.push(topPlayers);
             });
 
-            if(advancers.length < 2) return;
-            advancers.sort(() => Math.random() - 0.5);
+            if(groupAdvancers.length === 0) return;
 
-            let nextPow2 = Math.pow(2, Math.ceil(Math.log2(advancers.length)));
-            while (advancers.length < nextPow2) advancers.push(null);
+            // 2. 嚴格交叉配對：確保同組第一輪絕對不會強碰（如 A組第一 vs B組第二、B組第一 vs A組第二）
+            let r1Matches = [];
+            if(tData.groups.length === 2 && tData.advancingCount === 2 && groupAdvancers[0].length === 2 && groupAdvancers[1].length === 2) {
+                // 經典 2 個 4 人小組（各取前 2）：A1 vs B2, B1 vs A2
+                r1Matches.push({ p1: groupAdvancers[0][0], p2: groupAdvancers[1][1], winner: null, p1Actual: null, p2Actual: null });
+                r1Matches.push({ p1: groupAdvancers[1][0], p2: groupAdvancers[0][1], winner: null, p1Actual: null, p2Actual: null });
+            } else {
+                // 通用防撞配對邏輯
+                let poolA = []; // 各組第一
+                let poolB = []; // 各組第二或其他
+                groupAdvancers.forEach(gList => {
+                    if(gList.length > 0) poolA.push(gList[0]);
+                    for(let i = 1; i < gList.length; i++) poolB.push(gList[i]);
+                });
+                poolA.sort(() => Math.random() - 0.5);
+                poolB.sort(() => Math.random() - 0.5);
 
-            let rounds = [], r1 = [];
-            for (let i = 0; i < advancers.length; i += 2) {
-                r1.push({ p1: advancers[i], p2: advancers[i+1], winner: null, p1Actual: null, p2Actual: null });
+                let allFlatten = [];
+                let maxLen = Math.max(poolA.length, poolB.length);
+                for(let i = 0; i < maxLen; i++) {
+                    if(i < poolA.length) allFlatten.push(poolA[i]);
+                    if(i < poolB.length) allFlatten.push(poolB[i]);
+                }
+
+                let nextPow2 = Math.pow(2, Math.ceil(Math.log2(allFlatten.length)));
+                while (allFlatten.length < nextPow2) allFlatten.push(null);
+
+                for (let i = 0; i < allFlatten.length; i += 2) {
+                    let p1 = allFlatten[i];
+                    let p2 = allFlatten[i+1];
+                    // 防撞檢查：如果抽到同組，嘗試與後面互換
+                    if (p1 && p2 && p1.groupIdx === p2.groupIdx && allFlatten.length > 2) {
+                        for (let j = i + 2; j < allFlatten.length; j++) {
+                            if (allFlatten[j] && allFlatten[j].groupIdx !== p1.groupIdx) {
+                                let temp = allFlatten[j];
+                                allFlatten[j] = p2;
+                                p2 = temp;
+                                break;
+                            }
+                        }
+                    }
+                    r1Matches.push({ p1: p1, p2: p2, winner: null, p1Actual: null, p2Actual: null });
+                }
             }
-            rounds.push(r1);
 
-            let numMatches = r1.length / 2;
+            let rounds = [r1Matches];
+            let numMatches = r1Matches.length / 2;
             while (numMatches >= 1) {
                 let nextR = [];
                 for (let i = 0; i < numMatches; i++) nextR.push({ p1: null, p2: null, winner: null, p1Actual: null, p2Actual: null });
@@ -611,7 +650,6 @@
             tData.results.champion = finalMatch.winner.name;
             tData.results.runnerUp = finalMatch.p1.id === finalMatch.winner.id ? finalMatch.p2.name : finalMatch.p1.name;
 
-            // 尋找季軍（準決賽落敗的選手中挑選，若為 3 人晉級則自動判定未進決賽的另一人為季軍）
             let allAdvancers = [];
             tData.groups.forEach(g => {
                 let stats = {};
@@ -633,7 +671,7 @@
 
             let nonFinalists = allAdvancers.filter(p => p.name !== tData.results.champion && p.name !== tData.results.runnerUp);
             if (nonFinalists.length > 0) {
-                tData.results.third = nonFinalists[0].name; // 簡單取未進入決賽的晉級者為季軍
+                tData.results.third = nonFinalists[0].name;
             }
 
             tData.status = 'completed';
