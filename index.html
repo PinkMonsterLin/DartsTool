@@ -1,0 +1,678 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+    <!-- 支援手機加入主畫面設定 -->
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+    <meta name="apple-mobile-web-app-title" content="飛鏢賽事系統">
+    <link rel="apple-touch-icon" href="https://cdn-icons-png.flaticon.com/512/2855/2855627.png">
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>比賽分組工具</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+        .bracket-container { display: flex; gap: 2.5rem; overflow-x: auto; padding-bottom: 2rem; align-items: stretch; }
+        .bracket-col { display: flex; flex-direction: column; justify-content: space-around; position: relative; }
+        .bracket-match { position: relative; z-index: 10; background: #0f172a; }
+        .bracket-col:not(:last-child) .bracket-match::after {
+            content: ""; position: absolute; top: 50%; right: -1.25rem; width: 1.25rem; border-top: 2px solid #475569;
+        }
+        .bracket-col:not(:first-child) .bracket-match::before {
+            content: ""; position: absolute; top: 50%; left: -1.25rem; width: 1.25rem; border-top: 2px solid #475569;
+        }
+        .bracket-col:not(:last-child)::after {
+            content: ""; position: absolute; top: 25%; bottom: 25%; right: -1.25rem; border-right: 2px solid #475569; width: 2px; z-index: 0;
+        }
+    </style>
+</head>
+<body class="bg-slate-900 text-slate-100 min-h-screen relative pb-8">
+
+    <div class="container mx-auto px-4 py-6 max-w-6xl">
+        <header class="flex justify-between items-center mb-6 pb-4 border-b border-slate-700">
+            <h1 class="text-2xl font-bold text-emerald-400 flex items-center gap-2">🎯 比賽分組工具</h1>
+            <div class="flex gap-2">
+                <button onclick="switchTab('setup')" class="px-4 py-2 bg-slate-800 hover:bg-slate-700 rounded-lg text-sm font-medium transition" id="btn-setup">建立比賽</button>
+                <button onclick="switchTab('history')" class="px-4 py-2 bg-slate-800 hover:bg-slate-700 rounded-lg text-sm font-medium transition" id="btn-history">賽事紀錄</button>
+            </div>
+        </header>
+
+        <main>
+            <!-- 1. 建立比賽 -->
+            <section id="tab-setup" class="space-y-6 hidden">
+                <form id="tournament-form" onsubmit="startTournament(event)">
+                    <div class="bg-slate-800 p-6 rounded-2xl shadow-xl border border-slate-700 space-y-4">
+                        <h2 class="text-lg font-semibold text-emerald-300">1. 比賽設定</h2>
+                        <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+                            <div>
+                                <label class="block text-xs text-slate-400 mb-1">機台種類</label>
+                                <select id="input-machine" class="w-full bg-slate-900 border border-slate-700 rounded-lg px-3 py-2 text-white focus:outline-none focus:border-emerald-500" onchange="updateRatingLimits()">
+                                    <option value="phoenix">Phoenix</option>
+                                    <option value="dartslive">DartsLive</option>
+                                </select>
+                            </div>
+                            <div>
+                                <label class="block text-xs text-slate-400 mb-1">總參賽人數</label>
+                                <input type="number" inputmode="numeric" pattern="[0-9]*" id="input-total-players" value="8" min="2" max="64" required class="w-full bg-slate-900 border border-slate-700 rounded-lg px-3 py-2 text-white focus:outline-none focus:border-emerald-500" onchange="generatePlayerInputs()">
+                            </div>
+                            <div>
+                                <label class="block text-xs text-slate-400 mb-1">分組數量</label>
+                                <input type="number" inputmode="numeric" pattern="[0-9]*" id="input-groups" value="2" min="1" max="16" required class="w-full bg-slate-900 border border-slate-700 rounded-lg px-3 py-2 text-white focus:outline-none focus:border-emerald-500">
+                            </div>
+                            <div>
+                                <label class="block text-xs text-slate-400 mb-1">每組晉級人數</label>
+                                <input type="number" inputmode="numeric" pattern="[0-9]*" id="input-advancings" value="2" min="1" max="8" required class="w-full bg-slate-900 border border-slate-700 rounded-lg px-3 py-2 text-white focus:outline-none focus:border-emerald-500">
+                            </div>
+                            <div>
+                                <label class="block text-xs text-slate-400 mb-1">LEG 局數制 (小組賽用)</label>
+                                <input type="number" inputmode="numeric" pattern="[0-9]*" id="input-leg" value="3" min="1" max="11" step="2" required class="w-full bg-slate-900 border border-slate-700 rounded-lg px-3 py-2 text-white focus:outline-none focus:border-emerald-500">
+                            </div>
+                            <div>
+                                <label class="block text-xs text-slate-400 mb-1">爆級上限 (超過即判輸)</label>
+                                <input type="number" inputmode="decimal" id="input-cap" value="1.00" step="0.01" min="0" required class="w-full bg-slate-900 border border-slate-700 rounded-lg px-3 py-2 text-white focus:outline-none focus:border-emerald-500">
+                            </div>
+                        </div>
+                    </div>
+                    <div class="bg-slate-800 p-6 rounded-2xl shadow-xl border border-slate-700 mt-6">
+                        <h2 class="text-lg font-semibold mb-4 text-emerald-300">2. 輸入選手名字與等級</h2>
+                        <div id="players-inputs-container" class="grid grid-cols-1 md:grid-cols-2 gap-3 max-h-96 overflow-y-auto pr-2"></div>
+                    </div>
+                    <button type="submit" class="w-full mt-6 py-3 bg-emerald-600 hover:bg-emerald-500 text-white font-bold rounded-xl shadow-lg transition">
+                        建立比賽
+                    </button>
+                </form>
+            </section>
+
+            <!-- 2. 小組賽階段 -->
+            <section id="tab-group-stage" class="hidden space-y-6">
+                <div class="flex flex-col md:flex-row justify-between items-start md:items-center bg-slate-800 p-4 rounded-xl border border-slate-700 gap-4">
+                    <div>
+                        <h2 class="text-xl font-bold text-emerald-400">小組循環賽</h2>
+                        <p class="text-xs text-slate-400">必須完成所有賽程才能進入單淘汰賽。</p>
+                    </div>
+                    <div class="flex flex-col items-end gap-1 w-full md:w-auto">
+                        <button id="btn-go-knockout" onclick="goToKnockout()" class="w-full md:w-auto px-5 py-2 bg-indigo-600 hover:bg-indigo-500 text-white font-bold rounded-lg transition shadow opacity-50 cursor-not-allowed" disabled>
+                            進入單淘汰 ➔
+                        </button>
+                        <p id="group-error-msg" class="text-xs text-rose-400 font-bold">尚有小組賽未完成</p>
+                    </div>
+                </div>
+                <div id="groups-container" class="space-y-8"></div>
+            </section>
+
+            <!-- 3. 單淘汰賽階段 -->
+            <section id="tab-knockout" class="hidden space-y-6">
+                <div class="flex justify-between items-center bg-slate-800 p-4 rounded-xl border border-slate-700">
+                    <div>
+                        <h2 class="text-xl font-bold text-emerald-400">單淘汰</h2>
+                        <p class="text-xs text-slate-400">產生冠亞軍與季軍紀錄。</p>
+                    </div>
+                    <button onclick="finishTournament()" class="px-5 py-2 bg-emerald-600 hover:bg-emerald-500 text-white font-bold rounded-lg transition shadow">
+                        結算比賽並記錄名次
+                    </button>
+                </div>
+                <div id="knockout-container" class="bg-slate-800 p-6 rounded-2xl border border-slate-700 overflow-x-auto relative">
+                    <!-- 樹狀圖渲染區 -->
+                </div>
+            </section>
+
+            <!-- 4. 歷史紀錄 -->
+            <section id="tab-history" class="space-y-6">
+                <h2 class="text-xl font-bold text-emerald-400">賽事紀錄</h2>
+                <div id="history-container" class="grid grid-cols-1 md:grid-cols-2 gap-4"></div>
+            </section>
+        </main>
+    </div>
+
+    <!-- 小組賽紀錄彈窗 -->
+    <div id="match-modal" class="fixed inset-0 bg-black/70 flex items-center justify-center hidden z-50 p-4">
+        <div class="bg-slate-800 border border-slate-700 w-full max-w-md p-6 rounded-2xl shadow-2xl space-y-4">
+            <h3 id="modal-title" class="text-lg font-bold text-emerald-400">記錄小組賽對戰</h3>
+            <div id="modal-match-details" class="space-y-3"></div>
+            <div class="flex justify-between items-center pt-2">
+                <p id="modal-error-text" class="text-xs text-rose-400 font-bold hidden"></p>
+                <div class="flex gap-2 ml-auto">
+                    <button type="button" onclick="closeMatchModal('match-modal')" class="px-4 py-2 bg-slate-700 hover:bg-slate-600 rounded-lg text-sm">取消</button>
+                    <button type="button" id="btn-save-match" onclick="saveMatchResult()" class="px-4 py-2 bg-emerald-600 hover:bg-emerald-500 rounded-lg text-sm font-bold transition">確認儲存</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- 淘汰賽紀錄彈窗 -->
+    <div id="knockout-modal" class="fixed inset-0 bg-black/70 flex items-center justify-center hidden z-50 p-4">
+        <div class="bg-slate-800 border border-slate-700 w-full max-w-md p-6 rounded-2xl shadow-2xl space-y-4">
+            <h3 id="ko-modal-title" class="text-lg font-bold text-emerald-400">記錄淘汰賽</h3>
+            <div id="ko-modal-match-details" class="space-y-3"></div>
+            <div class="flex justify-between items-center pt-2">
+                <div class="flex gap-2 ml-auto">
+                    <button type="button" onclick="closeMatchModal('knockout-modal')" class="px-4 py-2 bg-slate-700 hover:bg-slate-600 rounded-lg text-sm">取消</button>
+                    <button type="button" onclick="saveKnockoutResult()" class="px-4 py-2 bg-indigo-600 hover:bg-indigo-500 rounded-lg text-sm font-bold transition">確認儲存</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- 浮動置底署名與日期 (pointer-events-none 確保不遮擋點擊) -->
+    <div class="fixed bottom-1 right-2 text-[10px] text-slate-500/70 pointer-events-none z-50">
+        Made by 品言 | 2026/09/14 僅供酒窩私人俱樂部使用
+    </div>
+
+    <script>
+        let tournaments = JSON.parse(localStorage.getItem('darts_tournaments')) || [];
+        let activeId = null; 
+        let tData = null; 
+        let currentMatchEdit = null;
+
+        window.onload = function() { 
+            generatePlayerInputs(); 
+            renderHistory();
+        };
+
+        function switchTab(tabId) {
+            document.querySelectorAll('main > section').forEach(sec => sec.classList.add('hidden'));
+            document.getElementById(`tab-${tabId}`).classList.remove('hidden');
+            if(tabId === 'history') { activeId = null; tData = null; renderHistory(); }
+        }
+
+        function autoSave() {
+            if(!activeId) return;
+            const index = tournaments.findIndex(t => t.id === activeId);
+            if(index !== -1) tournaments[index] = tData;
+            else tournaments.unshift(tData);
+            localStorage.setItem('darts_tournaments', JSON.stringify(tournaments));
+        }
+
+        function getFormatDate() {
+            const d = new Date();
+            const days = ['日', '一', '二', '三', '四', '五', '六'];
+            return `${d.getFullYear()}/${String(d.getMonth()+1).padStart(2,'0')}/${String(d.getDate()).padStart(2,'0')} (${days[d.getDay()]}) ${String(d.getHours()).padStart(2,'0')}:${String(d.getMinutes()).padStart(2,'0')}`;
+        }
+
+        function getRatingLimits() {
+            const m = document.getElementById('input-machine').value;
+            return m === 'dartslive' ? { min: 1.00, max: 18.00, step: '0.01' } : { min: 1.00, max: 30.00, step: '0.01' };
+        }
+
+        function enforceRatingLimit(input) {
+            const limits = getRatingLimits();
+            let val = parseFloat(input.value);
+            if (isNaN(val)) return;
+            if (val > limits.max) input.value = limits.max.toFixed(2);
+            else if (val < limits.min) input.value = limits.min.toFixed(2);
+            else input.value = val.toFixed(2);
+        }
+
+        function updateRatingLimits() {
+            const limits = getRatingLimits();
+            document.querySelectorAll('.player-rating').forEach(input => {
+                input.min = limits.min; input.max = limits.max; input.step = limits.step;
+                input.placeholder = `${limits.min.toFixed(2)} - ${limits.max.toFixed(2)}`;
+                if (input.value) enforceRatingLimit(input);
+            });
+        }
+
+        function generatePlayerInputs() {
+            const total = parseInt(document.getElementById('input-total-players').value) || 8;
+            const container = document.getElementById('players-inputs-container');
+            container.innerHTML = '';
+            const limits = getRatingLimits();
+            for (let i = 0; i < total; i++) {
+                const div = document.createElement('div');
+                div.className = "flex gap-2 items-center bg-slate-900/60 p-2 rounded-xl border border-slate-700/50";
+                div.innerHTML = `
+                    <span class="text-xs text-slate-500 w-6 text-center">#${i+1}</span>
+                    <input type="text" placeholder="選手名字 (限10字)" maxlength="10" required class="player-name bg-slate-800 border border-slate-700 rounded px-2 py-1 text-sm flex-1 text-white focus:outline-none focus:border-emerald-500" />
+                    <input type="number" inputmode="decimal" placeholder="${limits.min.toFixed(2)} - ${limits.max.toFixed(2)}" min="${limits.min}" max="${limits.max}" step="${limits.step}" required onblur="enforceRatingLimit(this)" class="player-rating bg-slate-800 border border-slate-700 rounded px-2 py-1 text-sm w-28 text-white focus:outline-none focus:border-emerald-500" />
+                `;
+                container.appendChild(div);
+            }
+        }
+
+        function startTournament(event) {
+            event.preventDefault();
+            const names = document.querySelectorAll('.player-name');
+            const ratings = document.querySelectorAll('.player-rating');
+            let players = [];
+            for(let i = 0; i < names.length; i++) {
+                players.push({ id: i, name: names[i].value.trim(), rating: parseFloat(ratings[i].value) });
+            }
+            players.sort(() => Math.random() - 0.5);
+
+            activeId = Date.now().toString();
+            tData = {
+                id: activeId,
+                status: 'playing',
+                date: getFormatDate(),
+                machine: document.getElementById('input-machine').value,
+                cap: parseFloat(document.getElementById('input-cap').value) || 1.00,
+                leg: parseInt(document.getElementById('input-leg').value) || 3,
+                advancingCount: parseInt(document.getElementById('input-advancings').value) || 2,
+                players: players,
+                groups: [],
+                knockoutRounds: [],
+                results: { champion: null, runnerUp: null, third: null }
+            };
+
+            const groupCount = parseInt(document.getElementById('input-groups').value) || 2;
+            let groups = Array.from({length: groupCount}, (_, i) => ({ name: String.fromCharCode(65 + i), players: [], matches: [] }));
+            players.forEach((p, idx) => groups[idx % groupCount].players.push(p));
+
+            groups.forEach(g => {
+                const len = g.players.length;
+                for(let i = 0; i < len; i++) {
+                    for(let j = i + 1; j < len; j++) {
+                        g.matches.push({ p1: g.players[i], p2: g.players[j], p1Legs: 0, p2Legs: 0, p1ActualRating: null, p2ActualRating: null, played: false });
+                    }
+                }
+            });
+
+            tData.groups = groups;
+            autoSave(); 
+            loadActiveTournament();
+        }
+
+        function resumeTournament(id) {
+            activeId = id;
+            tData = tournaments.find(t => t.id === id);
+            loadActiveTournament();
+        }
+
+        function deleteTournament(id) {
+            if(!confirm("確定要刪除？刪除後無法恢復。")) return;
+            tournaments = tournaments.filter(t => t.id !== id);
+            localStorage.setItem('darts_tournaments', JSON.stringify(tournaments));
+            renderHistory();
+        }
+
+        function loadActiveTournament() {
+            if(tData.knockoutRounds && tData.knockoutRounds.length > 0) {
+                renderKnockout();
+                switchTab('knockout');
+            } else {
+                renderGroupStage();
+                switchTab('group-stage');
+            }
+        }
+
+        function checkAllGroupsFinished() {
+            let allFinished = true;
+            tData.groups.forEach(g => {
+                g.matches.forEach(m => { if (!m.played) allFinished = false; });
+            });
+            const btn = document.getElementById('btn-go-knockout');
+            const msg = document.getElementById('group-error-msg');
+            if (allFinished) {
+                btn.disabled = false;
+                btn.classList.remove('opacity-50', 'cursor-not-allowed');
+                msg.classList.add('hidden');
+            } else {
+                btn.disabled = true;
+                btn.classList.add('opacity-50', 'cursor-not-allowed');
+                msg.classList.remove('hidden');
+            }
+        }
+
+        function renderGroupStage() {
+            const container = document.getElementById('groups-container');
+            container.innerHTML = '';
+            tData.groups.forEach((g, gIdx) => {
+                let stats = {};
+                g.players.forEach(p => { stats[p.id] = { player: p, legsWon: 0, legsLost: 0, matchWins: 0, matchLosses: 0 }; });
+                g.matches.forEach(m => {
+                    if(m.played) {
+                        stats[m.p1.id].legsWon += m.p1Legs; stats[m.p1.id].legsLost += m.p2Legs;
+                        stats[m.p2.id].legsWon += m.p2Legs; stats[m.p2.id].legsLost += m.p1Legs;
+                        if(m.p1Legs > m.p2Legs) { stats[m.p1.id].matchWins++; stats[m.p2.id].matchLosses++; }
+                        else if(m.p2Legs > m.p1Legs) { stats[m.p2.id].matchWins++; stats[m.p1.id].matchLosses++; }
+                    }
+                });
+                let sortedPlayers = [...g.players].sort((a, b) => {
+                    if (stats[b.id].matchWins !== stats[a.id].matchWins) return stats[b.id].matchWins - stats[a.id].matchWins;
+                    return (stats[b.id].legsWon - stats[b.id].legsLost) - (stats[a.id].legsWon - stats[a.id].legsLost);
+                });
+
+                let html = `<div class="bg-slate-800 border border-slate-700 rounded-2xl p-5 shadow-lg space-y-4 overflow-x-auto"><div class="border-b border-slate-700 pb-3 min-w-[300px]"><h3 class="text-lg font-bold text-emerald-400">GROUP ${g.name} 組</h3></div><table class="w-full text-left text-sm border-collapse min-w-[400px]"><thead><tr class="bg-slate-900 text-slate-400 border-b border-slate-700"><th class="p-2">對戰表</th>`;
+                g.players.forEach((p, idx) => { html += `<th class="p-2 text-center">${idx+1}</th>`; });
+                html += `<th class="p-2 text-center">勝</th><th class="p-2 text-center">負</th><th class="p-2 text-center">勝分</th><th class="p-2 text-center">負分</th><th class="p-2 text-center">名次</th></tr></thead><tbody>`;
+
+                g.players.forEach((p1, i) => {
+                    html += `<tr class="border-b border-slate-700/50"><td class="p-2 font-medium text-emerald-300 whitespace-nowrap">${i+1}. ${p1.name}</td>`;
+                    g.players.forEach((p2, j) => {
+                        if(i === j) html += `<td class="p-2 text-center text-slate-600 bg-slate-900/30">╱</td>`;
+                        else {
+                            let match = g.matches.find(m => (m.p1.id === p1.id && m.p2.id === p2.id) || (m.p1.id === p2.id && m.p2.id === p1.id));
+                            let text = "vs", bgClass = "bg-slate-700/50 text-slate-300 hover:bg-slate-600";
+                            if(match && match.played) {
+                                let isP1 = match.p1.id === p1.id, myLegs = isP1 ? match.p1Legs : match.p2Legs, oppLegs = isP1 ? match.p2Legs : match.p1Legs;
+                                text = `${myLegs}:${oppLegs}`;
+                                bgClass = myLegs > oppLegs ? "bg-emerald-900/50 text-emerald-300" : "bg-rose-900/50 text-rose-300";
+                            }
+                            html += `<td class="p-2 text-center"><button type="button" onclick="openMatchModal(${gIdx}, ${g.matches.indexOf(match)})" class="px-2 py-1 rounded text-xs transition ${bgClass}">${text}</button></td>`;
+                        }
+                    });
+                    html += `<td class="p-2 text-center font-bold text-emerald-400">${stats[p1.id].matchWins}</td><td class="p-2 text-center font-bold text-rose-400">${stats[p1.id].matchLosses}</td><td class="p-2 text-center">${stats[p1.id].legsWon}</td><td class="p-2 text-center">${stats[p1.id].legsLost}</td><td class="p-2 text-center font-bold text-amber-400">${sortedPlayers.findIndex(x => x.id === p1.id) + 1}</td></tr>`;
+                });
+                html += `</tbody></table></div>`;
+                container.innerHTML += html;
+            });
+            checkAllGroupsFinished();
+        }
+
+        function openMatchModal(gIdx, mIdx) {
+            currentMatchEdit = { gIdx, mIdx };
+            const match = tData.groups[gIdx].matches[mIdx];
+            let reqW = Math.ceil(tData.leg / 2);
+            document.getElementById('modal-title').innerText = `記錄對戰: ${match.p1.name} vs ${match.p2.name}`;
+            document.getElementById('modal-match-details').innerHTML = `
+                <div class="bg-slate-900 p-3 rounded-xl border border-slate-700">
+                    <div class="flex justify-between items-center text-sm mb-2"><span class="font-bold text-emerald-300">${match.p1.name} <span class="text-xs text-slate-500">(${match.p1.rating.toFixed(2)})</span></span>
+                    <input type="number" inputmode="numeric" pattern="[0-9]*" id="modal-p1-legs" value="${match.p1Legs}" max="${reqW}" class="w-16 bg-slate-800 border border-slate-700 rounded px-2 py-1 text-white text-center" oninput="validateModalData('p1')"></div>
+                    <div class="flex justify-between items-center text-sm border-t border-slate-800 pt-2"><label class="text-xs text-slate-400">實際 Rating:</label>
+                    <input type="number" inputmode="decimal" id="modal-p1-rating" value="${match.p1ActualRating || match.p1.rating}" step="0.01" class="w-20 bg-slate-800 border border-slate-700 rounded px-2 py-1 text-white text-right"></div>
+                </div>
+                <div class="bg-slate-900 p-3 rounded-xl border border-slate-700">
+                    <div class="flex justify-between items-center text-sm mb-2"><span class="font-bold text-emerald-300">${match.p2.name} <span class="text-xs text-slate-500">(${match.p2.rating.toFixed(2)})</span></span>
+                    <input type="number" inputmode="numeric" pattern="[0-9]*" id="modal-p2-legs" value="${match.p2Legs}" max="${reqW}" class="w-16 bg-slate-800 border border-slate-700 rounded px-2 py-1 text-white text-center" oninput="validateModalData('p2')"></div>
+                    <div class="flex justify-between items-center text-sm border-t border-slate-800 pt-2"><label class="text-xs text-slate-400">實際 Rating:</label>
+                    <input type="number" inputmode="decimal" id="modal-p2-rating" value="${match.p2ActualRating || match.p2.rating}" step="0.01" class="w-20 bg-slate-800 border border-slate-700 rounded px-2 py-1 text-white text-right"></div>
+                </div>
+            `;
+            document.getElementById('match-modal').classList.remove('hidden');
+            validateModalData('init');
+        }
+
+        function validateModalData(changedPlayer) {
+            let p1L = document.getElementById('modal-p1-legs'), p2L = document.getElementById('modal-p2-legs');
+            let v1 = parseInt(p1L.value)||0, v2 = parseInt(p2L.value)||0, reqW = Math.ceil(tData.leg / 2);
+            if(v1 > reqW) { v1 = reqW; p1L.value = reqW; }
+            if(v2 > reqW) { v2 = reqW; p2L.value = reqW; }
+            if(v1 === reqW && v2 === reqW) {
+                if(changedPlayer === 'p1') { v2 = reqW-1; p2L.value = v2; }
+                else if(changedPlayer === 'p2') { v1 = reqW-1; p1L.value = v1; }
+            }
+            let btn = document.getElementById('btn-save-match'), err = document.getElementById('modal-error-text');
+            if(v1 !== reqW && v2 !== reqW) {
+                btn.disabled = true; btn.classList.add('opacity-50', 'cursor-not-allowed');
+                err.innerText = `需達 ${reqW} 勝`; err.classList.remove('hidden');
+            } else {
+                btn.disabled = false; btn.classList.remove('opacity-50', 'cursor-not-allowed');
+                err.classList.add('hidden');
+            }
+        }
+
+        function saveMatchResult() {
+            const { gIdx, mIdx } = currentMatchEdit;
+            const match = tData.groups[gIdx].matches[mIdx];
+            let p1Actual = parseFloat(document.getElementById('modal-p1-rating').value) || match.p1.rating;
+            let p2Actual = parseFloat(document.getElementById('modal-p2-rating').value) || match.p2.rating;
+            let p1Burst = p1Actual > match.p1.rating + tData.cap;
+            let p2Burst = p2Actual > match.p2.rating + tData.cap;
+            let reqW = Math.ceil(tData.leg / 2);
+            
+            match.p1ActualRating = p1Actual; match.p2ActualRating = p2Actual;
+            match.p1Legs = parseInt(document.getElementById('modal-p1-legs').value) || 0;
+            match.p2Legs = parseInt(document.getElementById('modal-p2-legs').value) || 0;
+
+            if (p1Burst && !p2Burst) { match.p1Legs = 0; match.p2Legs = reqW; }
+            else if (p2Burst && !p1Burst) { match.p2Legs = 0; match.p1Legs = reqW; }
+
+            match.played = true;
+            autoSave();
+            closeMatchModal('match-modal');
+            renderGroupStage();
+        }
+
+        function goToKnockout() {
+            if(tData.knockoutRounds && tData.knockoutRounds.length > 0) return;
+
+            let advancers = [];
+            tData.groups.forEach(g => {
+                let stats = {};
+                g.players.forEach(p => { stats[p.id] = { matchWins: 0, legsWon: 0, legsLost: 0 }; });
+                g.matches.forEach(m => {
+                    if(m.played) {
+                        stats[m.p1.id].legsWon += m.p1Legs; stats[m.p1.id].legsLost += m.p2Legs;
+                        stats[m.p2.id].legsWon += m.p2Legs; stats[m.p2.id].legsLost += m.p1Legs;
+                        if(m.p1Legs > m.p2Legs) stats[m.p1.id].matchWins++;
+                        if(m.p2Legs > m.p1Legs) stats[m.p2.id].matchWins++;
+                    }
+                });
+                let sorted = [...g.players].sort((a, b) => {
+                    if (stats[b.id].matchWins !== stats[a.id].matchWins) return stats[b.id].matchWins - stats[a.id].matchWins;
+                    return (stats[b.id].legsWon - stats[b.id].legsLost) - (stats[a.id].legsWon - stats[a.id].legsLost);
+                });
+                advancers.push(...sorted.slice(0, tData.advancingCount));
+            });
+
+            if(advancers.length < 2) return;
+            advancers.sort(() => Math.random() - 0.5);
+
+            let nextPow2 = Math.pow(2, Math.ceil(Math.log2(advancers.length)));
+            while (advancers.length < nextPow2) advancers.push(null);
+
+            let rounds = [], r1 = [];
+            for (let i = 0; i < advancers.length; i += 2) {
+                r1.push({ p1: advancers[i], p2: advancers[i+1], winner: null, p1Actual: null, p2Actual: null });
+            }
+            rounds.push(r1);
+
+            let numMatches = r1.length / 2;
+            while (numMatches >= 1) {
+                let nextR = [];
+                for (let i = 0; i < numMatches; i++) nextR.push({ p1: null, p2: null, winner: null, p1Actual: null, p2Actual: null });
+                rounds.push(nextR);
+                numMatches /= 2;
+            }
+
+            rounds[0].forEach((m, i) => {
+                if (m.p1 === null && m.p2 !== null) { m.winner = m.p2; advanceTree(rounds, 0, i, m.p2); }
+                else if (m.p2 === null && m.p1 !== null) { m.winner = m.p1; advanceTree(rounds, 0, i, m.p1); }
+            });
+
+            tData.knockoutRounds = rounds;
+            autoSave();
+            renderKnockout();
+            switchTab('knockout');
+        }
+
+        function advanceTree(rounds, rIdx, mIdx, winner) {
+            let nextRIdx = rIdx + 1;
+            if(nextRIdx >= rounds.length) return; 
+            
+            let nextMIdx = Math.floor(mIdx / 2);
+            let isP1 = mIdx % 2 === 0;
+            
+            let nextMatch = rounds[nextRIdx][nextMIdx];
+            let oldAdvancer = isP1 ? nextMatch.p1 : nextMatch.p2;
+            
+            if(isP1) nextMatch.p1 = winner;
+            else nextMatch.p2 = winner;
+
+            if(oldAdvancer && oldAdvancer.id !== winner.id) {
+                clearDownstream(rounds, nextRIdx, nextMIdx);
+            }
+        }
+
+        function clearDownstream(rounds, rIdx, mIdx) {
+            let m = rounds[rIdx][mIdx];
+            m.winner = null;
+            m.p1Actual = null;
+            m.p2Actual = null;
+            let nextRIdx = rIdx + 1;
+            if(nextRIdx < rounds.length) {
+                let nextMIdx = Math.floor(mIdx / 2);
+                let isP1 = mIdx % 2 === 0;
+                let nextMatch = rounds[nextRIdx][nextMIdx];
+                if(isP1 && nextMatch.p1) { nextMatch.p1 = null; clearDownstream(rounds, nextRIdx, nextMIdx); }
+                if(!isP1 && nextMatch.p2) { nextMatch.p2 = null; clearDownstream(rounds, nextRIdx, nextMIdx); }
+            }
+        }
+
+        function renderKnockout() {
+            const container = document.getElementById('knockout-container');
+            let rounds = tData.knockoutRounds;
+            let html = `<div class="bracket-container">`;
+            
+            rounds.forEach((rMatches, rIdx) => {
+                let roundName = (rIdx === rounds.length - 1) ? "冠軍戰 (Final)" : `第 ${rIdx+1} 輪`;
+                html += `<div class="bracket-col min-w-[220px] space-y-6">`;
+                html += `<h4 class="text-sm font-bold text-center text-emerald-400 absolute -top-8 w-full">${roundName}</h4>`;
+                rMatches.forEach((m, mIdx) => {
+                    let statusColor = m.winner ? "border-emerald-600" : "border-slate-600 hover:border-indigo-400 cursor-pointer transition";
+                    let isBye = (!m.p1 || !m.p2) && m.winner;
+                    if(isBye) statusColor = "border-slate-800 opacity-50";
+
+                    html += `
+                        <div class="bracket-match border-2 ${statusColor} p-3 rounded-xl shadow-lg relative"
+                             ${(!isBye && m.p1 && m.p2) ? `onclick="openKnockoutModal(${rIdx}, ${mIdx})"` : ""}>
+                            <div class="flex flex-col gap-2">
+                                <div class="text-sm font-medium ${m.winner && m.winner.id === (m.p1&&m.p1.id) ? 'text-emerald-400 font-bold' : (m.p1 ? 'text-white' : 'text-slate-600')} flex justify-between">
+                                    <span>${m.p1 ? m.p1.name : 'TBD'}</span>
+                                    <span class="text-xs">${m.p1 ? (m.p1Actual || m.p1.rating.toFixed(2)) : ''}</span>
+                                </div>
+                                <div class="h-px bg-slate-700 w-full"></div>
+                                <div class="text-sm font-medium ${m.winner && m.winner.id === (m.p2&&m.p2.id) ? 'text-emerald-400 font-bold' : (m.p2 ? 'text-white' : 'text-slate-600')} flex justify-between">
+                                    <span>${m.p2 ? m.p2.name : (isBye ? 'BYE (輪空)' : 'TBD')}</span>
+                                    <span class="text-xs">${m.p2 && !isBye ? (m.p2Actual || m.p2.rating.toFixed(2)) : ''}</span>
+                                </div>
+                            </div>
+                        </div>
+                    `;
+                });
+                html += `</div>`;
+            });
+
+            html += `</div>`;
+            container.innerHTML = html;
+        }
+
+        function openKnockoutModal(rIdx, mIdx) {
+            currentMatchEdit = { rIdx, mIdx };
+            let m = tData.knockoutRounds[rIdx][mIdx];
+            
+            document.getElementById('ko-modal-match-details').innerHTML = `
+                <div class="bg-slate-900 p-3 rounded-xl border border-slate-700">
+                    <div class="flex justify-between items-center text-sm">
+                        <span class="font-bold text-emerald-300">${m.p1.name} <span class="text-xs text-slate-500">(${m.p1.rating.toFixed(2)})</span></span>
+                        <input type="number" inputmode="decimal" id="ko-p1-rating" value="${(m.p1Actual || m.p1.rating).toFixed(2)}" step="0.01" class="w-24 bg-slate-800 border border-slate-700 rounded px-2 py-1 text-white text-right">
+                    </div>
+                </div>
+                <div class="bg-slate-900 p-3 rounded-xl border border-slate-700 mt-2">
+                    <div class="flex justify-between items-center text-sm">
+                        <span class="font-bold text-emerald-300">${m.p2.name} <span class="text-xs text-slate-500">(${m.p2.rating.toFixed(2)})</span></span>
+                        <input type="number" inputmode="decimal" id="ko-p2-rating" value="${(m.p2Actual || m.p2.rating).toFixed(2)}" step="0.01" class="w-24 bg-slate-800 border border-slate-700 rounded px-2 py-1 text-white text-right">
+                    </div>
+                </div>
+                <div class="mt-4">
+                    <label class="block text-xs text-slate-400 mb-1">勝出者 (可重複修改)</label>
+                    <select id="ko-winner" class="w-full bg-slate-900 border border-slate-700 rounded-lg px-3 py-2 text-white">
+                        <option value="p1" ${m.winner && m.winner.id === m.p1.id ? 'selected' : ''}>${m.p1.name} 勝出</option>
+                        <option value="p2" ${m.winner && m.winner.id === m.p2.id ? 'selected' : ''}>${m.p2.name} 勝出</option>
+                    </select>
+                </div>
+            `;
+            document.getElementById('knockout-modal').classList.remove('hidden');
+        }
+
+        function saveKnockoutResult() {
+            const { rIdx, mIdx } = currentMatchEdit;
+            let m = tData.knockoutRounds[rIdx][mIdx];
+            
+            let p1Act = parseFloat(document.getElementById('ko-p1-rating').value) || m.p1.rating;
+            let p2Act = parseFloat(document.getElementById('ko-p2-rating').value) || m.p2.rating;
+            let selW = document.getElementById('ko-winner').value;
+
+            m.p1Actual = p1Act; m.p2Actual = p2Act;
+            let p1B = p1Act > m.p1.rating + tData.cap;
+            let p2B = p2Act > m.p2.rating + tData.cap;
+
+            let winner = selW === 'p1' ? m.p1 : m.p2;
+            if (selW === 'p1' && p1B && !p2B) winner = m.p2;
+            else if (selW === 'p2' && p2B && !p1B) winner = m.p1;
+            
+            m.winner = winner;
+            advanceTree(tData.knockoutRounds, rIdx, mIdx, winner);
+            
+            autoSave();
+            closeMatchModal('knockout-modal');
+            renderKnockout();
+        }
+
+        function closeMatchModal(modalId) {
+            document.getElementById(modalId).classList.add('hidden');
+            currentMatchEdit = null;
+        }
+
+        function finishTournament() {
+            let rounds = tData.knockoutRounds;
+            let finalMatch = rounds[rounds.length - 1][0];
+            if(!finalMatch || !finalMatch.winner) { alert("決賽尚未完成！"); return; }
+            
+            tData.results.champion = finalMatch.winner.name;
+            tData.results.runnerUp = finalMatch.p1.id === finalMatch.winner.id ? finalMatch.p2.name : finalMatch.p1.name;
+
+            // 尋找季軍（準決賽落敗的選手中挑選，若為 3 人晉級則自動判定未進決賽的另一人為季軍）
+            let allAdvancers = [];
+            tData.groups.forEach(g => {
+                let stats = {};
+                g.players.forEach(p => { stats[p.id] = { matchWins: 0, legsWon: 0, legsLost: 0 }; });
+                g.matches.forEach(m => {
+                    if(m.played) {
+                        stats[m.p1.id].legsWon += m.p1Legs; stats[m.p1.id].legsLost += m.p2Legs;
+                        stats[m.p2.id].legsWon += m.p2Legs; stats[m.p2.id].legsLost += m.p1Legs;
+                        if(m.p1Legs > m.p2Legs) stats[m.p1.id].matchWins++;
+                        if(m.p2Legs > m.p1Legs) stats[m.p2.id].matchWins++;
+                    }
+                });
+                let sorted = [...g.players].sort((a, b) => {
+                    if (stats[b.id].matchWins !== stats[a.id].matchWins) return stats[b.id].matchWins - stats[a.id].matchWins;
+                    return (stats[b.id].legsWon - stats[b.id].legsLost) - (stats[a.id].legsWon - stats[a.id].legsLost);
+                });
+                allAdvancers.push(...sorted.slice(0, tData.advancingCount));
+            });
+
+            let nonFinalists = allAdvancers.filter(p => p.name !== tData.results.champion && p.name !== tData.results.runnerUp);
+            if (nonFinalists.length > 0) {
+                tData.results.third = nonFinalists[0].name; // 簡單取未進入決賽的晉級者為季軍
+            }
+
+            tData.status = 'completed';
+            autoSave();
+            switchTab('history');
+        }
+
+        function renderHistory() {
+            const container = document.getElementById('history-container');
+            if(tournaments.length === 0) {
+                container.innerHTML = `<p class="text-slate-500 text-center py-8 col-span-2">目前沒有歷史賽事紀錄。</p>`; return;
+            }
+            container.innerHTML = tournaments.map((h) => `
+                <div class="bg-slate-800 border ${h.status === 'completed' ? 'border-emerald-600/50' : 'border-amber-600/50'} p-5 rounded-2xl shadow space-y-4 relative">
+                    <button onclick="deleteTournament('${h.id}')" class="absolute top-4 right-4 text-slate-500 hover:text-rose-500 transition" title="刪除此紀錄">
+                        <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" /></svg>
+                    </button>
+                    <div class="flex justify-between items-center border-b border-slate-700 pb-2 pr-6">
+                        <div>
+                            <span class="text-xs text-slate-400 block">${h.date}</span>
+                            <span class="text-sm font-bold ${h.status==='completed' ? 'text-emerald-400' : 'text-amber-400'}">
+                                ${h.status==='completed' ? '✅ 已完賽' : '⏳ 進行中'}
+                            </span>
+                        </div>
+                        ${h.status !== 'completed' ? `<button onclick="resumeTournament('${h.id}')" class="px-3 py-1 bg-indigo-600 hover:bg-indigo-500 text-xs text-white rounded font-bold">繼續比賽</button>` : ''}
+                    </div>
+                    
+                    ${h.status === 'completed' ? `
+                    <div class="bg-slate-900/50 p-3 rounded-lg flex flex-col gap-1">
+                        <div class="flex items-center gap-2"><span class="text-amber-400 text-lg">🥇</span><span class="font-bold text-white">${h.results.champion || '-'}</span></div>
+                        <div class="flex items-center gap-2"><span class="text-slate-300 text-lg">🥈</span><span class="font-medium text-slate-200">${h.results.runnerUp || '-'}</span></div>
+                        ${h.results.third ? `<div class="flex items-center gap-2"><span class="text-amber-600 text-lg">🥉</span><span class="text-sm text-slate-300">${h.results.third}</span></div>` : ''}
+                    </div>` : `
+                    <div class="text-sm text-slate-300">
+                        機台: ${h.machine==='dartslive'?'DL':'Phoenix'} | 人數: ${h.players.length} | 賽制: ${h.leg}局
+                    </div>`}
+                </div>
+            `).join('');
+        }
+    </script>
+</body>
+</html>
